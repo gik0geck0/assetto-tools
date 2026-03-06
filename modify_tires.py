@@ -21,184 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 
-class TireSection:
-    """Represents a tire section [FRONT] or [REAR] with its properties."""
-    
-    def __init__(self, section_name: str, start_line: int, end_line: int):
-        self.section_name = section_name  # e.g., "FRONT", "REAR", "FRONT_1"
-        self.start_line = start_line
-        self.end_line = end_line
-        self.properties: Dict[str, str] = {}
-        self.original_properties: Dict[str, str] = {}  # Store original values
-        self.property_lines: Dict[str, int] = {}  # Map property name to line number
-        self.raw_lines: List[str] = []
-        self.is_front = section_name.startswith('FRONT')
-        self.is_rear = section_name.startswith('REAR')
-        self.modified = False  # Track if section was modified
-    
-    def get_name(self) -> Optional[str]:
-        """Get the NAME property value."""
-        return self.properties.get('NAME')
-    
-    def set_property(self, key: str, value: str):
-        """Set a property value (will update when written)."""
-        key_upper = key.upper()
-        self.properties[key_upper] = value
-        self.modified = True
-        # If this property didn't exist before, we'll need to add it
-        # (for now, we only update existing properties)
-    
-    def get_property(self, key: str) -> Optional[str]:
-        """Get a property value."""
-        return self.properties.get(key)
-
-
-class TireConfigParser:
-    """Parser for tyres.ini file."""
-    
-    # Regex to match property lines: KEY=VALUE    ; comment
-    # Allow values with spaces and quoted strings; capture optional trailing comment
-    PROPERTY_PATTERN = re.compile(r'^([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*(;.*)?$', re.IGNORECASE)
-    # Regex to match section headers: [FRONT], [REAR], [FRONT_1], etc.
-    SECTION_PATTERN = re.compile(r'^\[(FRONT|REAR|THERMAL_FRONT|THERMAL_REAR)(?:_\d+)?\]', re.IGNORECASE)
-    
-    def __init__(self, file_path: Path):
-        self.file_path = file_path
-        self.sections: List[TireSection] = []
-        self.header_lines: List[str] = []
-        self.lines: List[str] = []
-    
-    def parse(self):
-        """Parse the tyres.ini file."""
-        with open(self.file_path, 'r', encoding='utf-8') as f:
-            self.lines = f.readlines()
-        
-        current_section: Optional[TireSection] = None
-        i = 0
-        
-        while i < len(self.lines):
-            line = self.lines[i]
-            stripped = line.strip()
-            
-            # Check for section header
-            section_match = self.SECTION_PATTERN.match(stripped)
-            if section_match:
-                # Save previous section if exists
-                if current_section:
-                    current_section.end_line = i - 1
-                    self.sections.append(current_section)
-                
-                # Start new section
-                # Get full section name if it has a number
-                full_match = re.match(r'\[((?:FRONT|REAR|THERMAL_FRONT|THERMAL_REAR)(?:_\d+)?)\]', stripped, re.IGNORECASE)
-                if full_match:
-                    section_name = full_match.group(1).upper()
-                else:
-                    section_name = section_match.group(1).upper()
-                
-                current_section = TireSection(section_name, i, i)
-                current_section.raw_lines.append(line)
-                i += 1
-                continue
-            
-            # If we're in a section, parse properties
-            if current_section:
-                current_section.raw_lines.append(line)
-                prop_match = self.PROPERTY_PATTERN.match(stripped)
-                if prop_match:
-                    key = prop_match.group(1).upper()
-                    # Strip surrounding quotes and whitespace from value
-                    value = prop_match.group(2).strip()
-                    value = value.strip('"\'')
-                    current_section.properties[key] = value
-                    current_section.original_properties[key] = value
-                    current_section.property_lines[key] = i
-            else:
-                # Header lines before any section - store as list of (line_num, line) tuples
-                if not hasattr(self, 'header_line_numbers'):
-                    self.header_line_numbers = []
-                self.header_line_numbers.append(i)
-            
-            i += 1
-        
-        # Save last section
-        if current_section:
-            current_section.end_line = i - 1
-            self.sections.append(current_section)
-    
-    def find_by_name(self, name: str, section_type: Optional[str] = None) -> List[TireSection]:
-        """
-        Find tire sections by NAME property.
-        
-        Args:
-            name: Tire name to search for
-            section_type: Optional filter: 'front', 'rear', or None for both
-        """
-        results = []
-        for section in self.sections:
-            section_name = section.get_name()
-            if section_name and section_name.lower() == name.lower():
-                if section_type is None:
-                    results.append(section)
-                elif section_type.lower() == 'front' and section.is_front:
-                    results.append(section)
-                elif section_type.lower() == 'rear' and section.is_rear:
-                    results.append(section)
-        return results
-    
-    def write(self, output_path: Optional[Path] = None):
-        """Write the modified configuration back to file."""
-        if output_path is None:
-            output_path = self.file_path
-        
-        # Build a map of line numbers to modified properties (only for modified sections)
-        modified_lines = {}
-        for section in self.sections:
-            if not section.modified:
-                continue
-            
-            # For each property in the section, check if it was modified
-            for key, value in section.properties.items():
-                # Only modify if it exists in property_lines (was in original file)
-                # and the value changed
-                if key in section.property_lines:
-                    original_value = section.original_properties.get(key)
-                    if value != original_value:
-                        line_num = section.property_lines[key]
-                        modified_lines[line_num] = (key, value, section)
-        
-        # Build output lines
-        output_lines = []
-        i = 0
-        
-        while i < len(self.lines):
-            line = self.lines[i]
-            stripped = line.strip()
-            
-            # Check if this line should be modified
-            if i in modified_lines:
-                key, value, section = modified_lines[i]
-                # Try to preserve original formatting and comments
-                prop_match = self.PROPERTY_PATTERN.match(stripped)
-                if prop_match:
-                    comment = prop_match.group(3) if prop_match.group(3) else ''
-                    # Preserve original indentation if any
-                    indent = line[:len(line) - len(line.lstrip())]
-                    # Use original key casing
-                    orig_key = prop_match.group(1)
-                    new_line = f"{indent}{orig_key}={value}{comment}\n"
-                    output_lines.append(new_line)
-                else:
-                    # Fallback: just replace with key=value
-                    output_lines.append(f"{key}={value}\n")
-            else:
-                # Keep original line
-                output_lines.append(line)
-            
-            i += 1
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.writelines(output_lines)
+from tire_lib import TireSection, TireConfigParser, split_base_index
 
 
 def parse_command_line_args(args):
@@ -481,14 +304,7 @@ def main():
         source_parser = TireConfigParser(source_path)
         source_parser.parse()
 
-        # Helper: extract base and index from section name
-        def split_base_index(name: str) -> Tuple[str, int]:
-            m = re.match(r'^(FRONT|REAR|THERMAL_FRONT|THERMAL_REAR)(?:_(\d+))?$', name, re.IGNORECASE)
-            if not m:
-                return name, 0
-            base = m.group(1).upper()
-            idx = int(m.group(2)) if m.group(2) else 0
-            return base, idx
+        # (split_base_index imported from tire_lib)
 
         # Compute current max index per base in target
         max_index = {}
@@ -600,13 +416,7 @@ def main():
         parser_local = TireConfigParser(tyres_file)
         parser_local.parse()
 
-        def split_base_index(name: str) -> Tuple[str, int]:
-            m = re.match(r'^(FRONT|REAR|THERMAL_FRONT|THERMAL_REAR)(?:_(\d+))?$', name, re.IGNORECASE)
-            if not m:
-                return name, 0
-            base = m.group(1).upper()
-            idx = int(m.group(2)) if m.group(2) else 0
-            return base, idx
+        # (split_base_index imported from tire_lib)
 
         bases = ['FRONT', 'REAR', 'THERMAL_FRONT', 'THERMAL_REAR']
         total_changes = 0
@@ -666,9 +476,10 @@ def main():
         print(f"Shift complete (src={src} -> dst={dst}). Renamed/updated {total_changes} sections.")
         sys.exit(0)
 
-    # If resize command, adjust WIDTH and derived properties
+    # If resize command, adjust WIDTH and all modeled properties using tire_model.json
     if config.get('command') == 'resize':
-        # widths in config are in mm; convert to meters (file uses meters)
+        import json as _json
+
         name_filter = config.get('name')
         gw = config.get('global_width')
         fw = config.get('front_width')
@@ -677,13 +488,52 @@ def main():
         def mm_to_m(mm_val: float) -> float:
             return mm_val / 1000.0
 
+        # ------------------------------------------------------------------
+        # Try to load the trained model produced by analyze_tires.py
+        # ------------------------------------------------------------------
+        model_path = Path(__file__).parent / 'tire_model.json'
+        model = None
+        if model_path.exists():
+            try:
+                with open(model_path, 'r', encoding='utf-8') as _fh:
+                    model = _json.load(_fh)
+                print(f"Using trained model: {model_path}")
+            except Exception as _e:
+                print(f"Warning: could not load {model_path}: {_e}")
+                model = None
+        else:
+            print(f"Warning: no tire_model.json found at {model_path}.")
+            print("  Run: python analyze_tires.py analyze <dir>  to generate the model.")
+            print("  Falling back to primitive proportional scaling.\n")
+
+        def eval_poly(coeffs, width_mm: float) -> float:
+            """Evaluate polynomial (high-degree first) at width_mm."""
+            result = 0.0
+            for c in coeffs:
+                result = result * width_mm + c
+            return result
+
+        # Map section base -> canonical training section in the model
+        # (FRONT and REAR share the same model; THERMAL_FRONT/REAR likewise)
+        SECTION_TRAINING_MAP = {
+            'FRONT':         'FRONT',
+            'REAR':          'FRONT',
+            'THERMAL_FRONT': 'THERMAL_FRONT',
+            'THERMAL_REAR':  'THERMAL_FRONT',
+        }
+
+        def _guess_decimals(s: str) -> int:
+            """Count decimal places in a numeric string."""
+            if '.' in s:
+                return len(s.rstrip('0').rstrip('.').split('.')[-1])
+            return 0
+
         target_parser = TireConfigParser(tyres_file)
         target_parser.parse()
 
         # Determine which sections to process
         sections_to_modify: List[TireSection] = []
         if name_filter:
-            # restrict to sections with matching NAME
             for sec in target_parser.sections:
                 n = sec.get_name()
                 if n and n.strip('"\'').lower() == name_filter.strip('"\'').lower():
@@ -692,13 +542,17 @@ def main():
             sections_to_modify = list(target_parser.sections)
 
         modified_count = 0
+
         for sec in sections_to_modify:
-            # determine which width to apply for this section (front/rear/global)
-            base = 'FRONT' if sec.is_front else 'REAR' if sec.is_rear else None
-            desired_mm = None
-            if base == 'FRONT' and fw is not None:
+            # Determine width target for this section
+            sec_base_raw = re.sub(r'_\d+$', '', sec.section_name)  # e.g. FRONT_1 -> FRONT
+            is_front_type = sec_base_raw in ('FRONT',)
+            is_rear_type  = sec_base_raw in ('REAR',)
+
+            desired_mm: Optional[float] = None
+            if is_front_type and fw is not None:
                 desired_mm = fw
-            elif base == 'REAR' and rw is not None:
+            elif is_rear_type and rw is not None:
                 desired_mm = rw
             elif gw is not None:
                 desired_mm = gw
@@ -706,53 +560,95 @@ def main():
             if desired_mm is None:
                 continue  # no width target for this section
 
-            # get old width in meters
+            # Always update WIDTH
             old_w_s = sec.get_property('WIDTH')
             if not old_w_s:
                 print(f"Skipping section {sec.section_name}: no WIDTH property")
                 continue
             try:
-                old_w = float(old_w_s)
+                old_w_m = float(old_w_s)
             except Exception:
-                print(f"Skipping section {sec.section_name}: invalid WIDTH value '{old_w_s}'")
+                print(f"Skipping section {sec.section_name}: invalid WIDTH '{old_w_s}'")
                 continue
+            
+            old_width_mm = round(old_w_m * 1000, 3)
+            new_w_m = mm_to_m(desired_mm)
+            sec.set_property('WIDTH', f"{new_w_m:.3f}")
 
-            new_w = mm_to_m(float(desired_mm))
+            if model is not None:
+                # ----------------------------------------------------
+                # Model-driven update: evaluate polynomial for EACH
+                # modeled property AT BOTH widths to calculate a delta.
+                # ----------------------------------------------------
+                training_section = SECTION_TRAINING_MAP.get(sec_base_raw)
+                section_models = model.get('sections', {})
+                prop_models = section_models.get(training_section, {}) if training_section else {}
 
-            # Get old derived properties
-            ai_s = sec.get_property('ANGULAR_INERTIA')
-            rate_s = sec.get_property('RATE')
-            damp_s = sec.get_property('DAMP')
+                for prop, entry in prop_models.items():
+                    if prop == 'WIDTH':
+                        continue  # already set above
+                    old_val_s = sec.get_property(prop)
+                    if old_val_s is None:
+                        continue  # property not present in this tire
 
-            # Update WIDTH (meters) with 3 decimals
-            sec.set_property('WIDTH', f"{new_w:.3f}")
+                    try:
+                        old_val = float(old_val_s)
+                        poly_at_old = eval_poly(entry['poly'], old_width_mm)
+                        poly_at_new = eval_poly(entry['poly'], desired_mm)
+                        
+                        delta = poly_at_new - poly_at_old
+                        new_val = old_val + delta
+                    except Exception as _e:
+                        print(f"Warning: could not evaluate adjustment for {prop}: {_e}")
+                        continue
 
-            # Update ANGULAR_INERTIA if present (2 decimals)
-            if ai_s:
+                    # Preserve original decimal precision
+                    decimals = _guess_decimals(old_val_s)
+                    if decimals == 0:
+                        formatted = str(int(round(new_val)))
+                    else:
+                        formatted = f"{new_val:.{decimals}f}"
+
+                    sec.set_property(prop, formatted)
+
+            else:
+                # ----------------------------------------------------
+                # Primitive fallback (original algorithm)
+                # ----------------------------------------------------
+                old_w_s = sec.get_property('WIDTH')
+                if not old_w_s:
+                    print(f"Skipping section {sec.section_name}: no WIDTH property")
+                    continue
                 try:
-                    ai_old = float(ai_s)
-                    ai_new = ai_old * (new_w / old_w)
-                    sec.set_property('ANGULAR_INERTIA', f"{ai_new:.2f}")
+                    old_w = float(old_w_s)
                 except Exception:
-                    print(f"Warning: could not parse ANGULAR_INERTIA '{ai_s}' for {sec.section_name}")
+                    print(f"Skipping section {sec.section_name}: invalid WIDTH '{old_w_s}'")
+                    continue
 
-            # Update RATE if present (integer)
-            if rate_s:
-                try:
-                    rate_old = float(rate_s)
-                    rate_new = rate_old * (old_w / new_w) ** 0.25
-                    sec.set_property('RATE', str(int(round(rate_new))))
-                except Exception:
-                    print(f"Warning: could not parse RATE '{rate_s}' for {sec.section_name}")
+                new_w = new_w_m
 
-            # Update DAMP if present (integer)
-            if damp_s:
-                try:
-                    damp_old = float(damp_s)
-                    damp_new = damp_old * (new_w / old_w)
-                    sec.set_property('DAMP', str(int(round(damp_new))))
-                except Exception:
-                    print(f"Warning: could not parse DAMP '{damp_s}' for {sec.section_name}")
+                ai_s   = sec.get_property('ANGULAR_INERTIA')
+                rate_s = sec.get_property('RATE')
+                damp_s = sec.get_property('DAMP')
+
+                if ai_s:
+                    try:
+                        ai_new = float(ai_s) * (new_w / old_w)
+                        sec.set_property('ANGULAR_INERTIA', f"{ai_new:.2f}")
+                    except Exception:
+                        pass
+                if rate_s:
+                    try:
+                        rate_new = float(rate_s) * (old_w / new_w) ** 0.25
+                        sec.set_property('RATE', str(int(round(rate_new))))
+                    except Exception:
+                        pass
+                if damp_s:
+                    try:
+                        damp_new = float(damp_s) * (new_w / old_w)
+                        sec.set_property('DAMP', str(int(round(damp_new))))
+                    except Exception:
+                        pass
 
             modified_count += 1
 
@@ -761,7 +657,8 @@ def main():
             sys.exit(0)
 
         target_parser.write()
-        print(f"Resized {modified_count} sections (widths in mm applied: global={gw}, front={fw}, rear={rw})")
+        print(f"Resized {modified_count} sections "
+              f"(target widths mm: global={gw}, front={fw}, rear={rw})")
         sys.exit(0)
 
     # If copy command, duplicate a tire within the local tyres.ini
