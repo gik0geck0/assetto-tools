@@ -1,0 +1,60 @@
+﻿
+  A: tire_ks_semi_245.ini:0 (TCR M)
+  B: tire_ks_semi_265.ini:0 (TCR M)
+
+  Property                                            A                  B    Diff%
+python : Traceback 
+(most recent call 
+last):
+At line:1 char:1
++ python 
+analyze_tires.py 
+compare tires_generate
+d_bywidth/tire_ks_semi
+_ ...
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (Traceback    
+ (most recent call    
+ last)::String) [    
+], RemoteExceptio    n
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+  File "F:\Repos\acmod
+\analyze_tires.py", 
+line 684, in <module>
+    main()
+  File "F:\Repos\acmod
+\analyze_tires.py", 
+line 670, in main
+    compare(
+  File "F:\Repos\acmod
+\analyze_tires.py", 
+line 496, in compare
+    print('  ' + 
+'\u2500' * 
+(header_width - 2))
+  File "C:\Users\kaori
+\AppData\Local\Program
+s\Python\Python312\Lib
+\encodings\cp1252.py",
+ line 19, in encode
+    return codecs.char
+map_encode(input,self.
+errors,encoding_table)
+[0]
+           ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 
+'charmap' codec can't 
+encode characters in 
+position 2-79: 
+character maps to 
+<undefined>
