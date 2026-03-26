@@ -1,0 +1,18 @@
+# Python environments
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Output and logs
+*.log
+gforce_output.txt
+out_utf8.txt
+compare_verify.txt
+cmp_test1.txt
+
+# Editor directories
+.vscode/
+.idea/
+.vs/
