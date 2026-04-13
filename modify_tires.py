@@ -672,14 +672,7 @@ def main():
         parser_local = TireConfigParser(tyres_file)
         parser_local.parse()
 
-        # Helper: extract base and index from section name
-        def split_base_index(name: str) -> Tuple[str, int]:
-            m = re.match(r'^(FRONT|REAR|THERMAL_FRONT|THERMAL_REAR)(?:_(\d+))?$', name, re.IGNORECASE)
-            if not m:
-                return name, 0
-            base = m.group(1).upper()
-            idx = int(m.group(2)) if m.group(2) else 0
-            return base, idx
+
 
         # Build set of existing names
         existing_names = set()
