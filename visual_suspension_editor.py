@@ -324,7 +324,7 @@ class MainWindow(QMainWindow):
 
         # Origin Box to denote Chassis Center
         origin_box = pv.Cube(center=(0, 0, 0), x_length=0.1, y_length=0.05, z_length=0.1)
-        self.plotter.add_mesh(origin_box, color="white", pickable=False, name="chassis_origin_center")
+        self.plotter.add_mesh(origin_box, color="green", pickable=False, name="chassis_origin_center")
 
         # Draw Center of Gravity (CG)
         wheelbase = self.suspension_file.scalars.get(("BASIC", "WHEELBASE"), 0.0)
